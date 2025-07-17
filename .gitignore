@@ -1,0 +1,8 @@
+# Database files
+*.db
+
+# Python virtual environment
+venv/
+
+# Python cache
+__pycache__/
