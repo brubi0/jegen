@@ -148,28 +148,34 @@ def process_files_route():
         return "Error: Please provide all inputs.", 400
     
     try:
-        df_register_raw = pd.read_excel(payroll_register_file, header=None)
-        df_summary_raw = pd.read_excel(statistical_summary_file, header=None)
+        # Read data from the specific Excel tabs
+        df_register_raw = pd.read_excel(payroll_register_file, sheet_name='Payroll Register', header=None)
+        df_summary_raw = pd.read_excel(statistical_summary_file, sheet_name='Statistical Summary', header=None)
 
+        # Process the raw data
         processed_register_df = process_payroll_register(df_register_raw)
         processed_taxes_df = process_statistical_summary(df_summary_raw)
 
+        # Create the journal entry
         final_je_df, status_message = create_journal_entry(processed_register_df, processed_taxes_df, payroll_date)
 
+        # Handle cases where processing fails
         if final_je_df is None:
             return f"An error occurred: {status_message}", 500
 
+        # Prepare CSV data for download and store in session
         csv_df = final_je_df.copy()
         csv_df['Debit'] = csv_df['Debit'].apply(lambda x: '' if x == 0 else x)
         csv_df['Credit'] = csv_df['Credit'].apply(lambda x: '' if x == 0 else x)
-        
         session['journal_entry_csv'] = csv_df.to_csv(index=False)
 
+        # Prepare HTML tables for display
         tables_html = {
             'journal_entry': final_je_df.to_html(classes='table table-striped', index=False, float_format='{:,.2f}'.format),
             'payroll_summary': processed_register_df[['Department', 'Employee Name', 'Gross Pay', 'Commission', 'Car Allowance']].to_html(classes='table table-striped', index=False, float_format='{:,.2f}'.format)
         }
         
+        # Render the results page
         return render_template('results.html',
                                payroll_date=pd.to_datetime(payroll_date).strftime('%m/%d/%Y'),
                                status_message=status_message,
