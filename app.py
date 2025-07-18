@@ -94,28 +94,33 @@ def create_journal_entry(register_df, taxes_df, payroll_date):
     
     journal_lines = []
     entity = 2
+    formatted_date = pd.to_datetime(payroll_date).strftime('%m/%d/%Y')
+
     for index, employee in register_df.iterrows():
         emp_name, emp_dept = employee['Employee Name'], employee['Department']
         if employee['Gross Pay'] > 0:
-            acct = CHART_OF_ACCOUNTS['Gross Pay']; journal_lines.append({'Account': f"{acct['acct']} {acct['desc']}", 'Memo': f"Gross Pay: {emp_name}", 'Department': emp_dept, 'Debit': employee['Gross Pay'], 'Credit': 0, 'Subsidiary': entity})
+            acct = CHART_OF_ACCOUNTS['Gross Pay']
+            journal_lines.append({'Date': formatted_date, 'Account': f"{acct['acct']} {acct['desc']}", 'Memo': f"Gross Pay: {emp_name}", 'Department': emp_dept, 'Debit': employee['Gross Pay'], 'Credit': 0, 'Subsidiary': entity})
         if employee['Commission'] > 0:
-            acct = CHART_OF_ACCOUNTS['Commission']; journal_lines.append({'Account': f"{acct['acct']} {acct['desc']}", 'Memo': f"Commission: {emp_name}", 'Department': emp_dept, 'Debit': employee['Commission'], 'Credit': 0, 'Subsidiary': entity})
+            acct = CHART_OF_ACCOUNTS['Commission']
+            journal_lines.append({'Date': formatted_date, 'Account': f"{acct['acct']} {acct['desc']}", 'Memo': f"Commission: {emp_name}", 'Department': emp_dept, 'Debit': employee['Commission'], 'Credit': 0, 'Subsidiary': entity})
         if employee['Car Allowance'] > 0:
-            acct = CHART_OF_ACCOUNTS['Car Allowance']; journal_lines.append({'Account': f"{acct['acct']} {acct['desc']}", 'Memo': f"Car Allowance: {emp_name}", 'Department': emp_dept, 'Debit': employee['Car Allowance'], 'Credit': 0, 'Subsidiary': entity})
+            acct = CHART_OF_ACCOUNTS['Car Allowance']
+            journal_lines.append({'Date': formatted_date, 'Account': f"{acct['acct']} {acct['desc']}", 'Memo': f"Car Allowance: {emp_name}", 'Department': emp_dept, 'Debit': employee['Car Allowance'], 'Credit': 0, 'Subsidiary': entity})
 
-    acct = CHART_OF_ACCOUNTS['ER_FICA']; journal_lines.append({'Account': f"{acct['acct']} {acct['desc']}", 'Memo': 'Employer FICA', 'Department': '', 'Debit': tax_map['ER_FICA'], 'Credit': 0, 'Subsidiary': entity})
-    acct = CHART_OF_ACCOUNTS['FUTA']; journal_lines.append({'Account': f"{acct['acct']} {acct['desc']}", 'Memo': 'Employer FUTA', 'Department': '', 'Debit': tax_map['FUTA'], 'Credit': 0, 'Subsidiary': entity})
-    acct = CHART_OF_ACCOUNTS['SUTA']; journal_lines.append({'Account': f"{acct['acct']} {acct['desc']}", 'Memo': 'Employer SUTA', 'Department': '', 'Debit': tax_map['SUTA'], 'Credit': 0, 'Subsidiary': entity})
-    acct = CHART_OF_ACCOUNTS['EE_FICA']; journal_lines.append({'Account': f"{acct['acct']} {acct['desc']}", 'Memo': 'Employee FICA Withheld', 'Department': '', 'Debit': 0, 'Credit': tax_map['EE_FICA'], 'Subsidiary': entity})
-    acct = CHART_OF_ACCOUNTS['State_WH']; journal_lines.append({'Account': f"{acct['acct']} {acct['desc']}", 'Memo': 'State Income Tax Withheld', 'Department': '', 'Debit': 0, 'Credit': tax_map['State_WH'], 'Subsidiary': entity})
-    acct = CHART_OF_ACCOUNTS['SDI']; journal_lines.append({'Account': f"{acct['acct']} {acct['desc']}", 'Memo': 'Employee SDI Withheld', 'Department': '', 'Debit': 0, 'Credit': tax_map['SDI'], 'Subsidiary': entity})
+    acct = CHART_OF_ACCOUNTS['ER_FICA']; journal_lines.append({'Date': formatted_date, 'Account': f"{acct['acct']} {acct['desc']}", 'Memo': 'Employer FICA', 'Department': '', 'Debit': tax_map['ER_FICA'], 'Credit': 0, 'Subsidiary': entity})
+    acct = CHART_OF_ACCOUNTS['FUTA']; journal_lines.append({'Date': formatted_date, 'Account': f"{acct['acct']} {acct['desc']}", 'Memo': 'Employer FUTA', 'Department': '', 'Debit': tax_map['FUTA'], 'Credit': 0, 'Subsidiary': entity})
+    acct = CHART_OF_ACCOUNTS['SUTA']; journal_lines.append({'Date': formatted_date, 'Account': f"{acct['acct']} {acct['desc']}", 'Memo': 'Employer SUTA', 'Department': '', 'Debit': tax_map['SUTA'], 'Credit': 0, 'Subsidiary': entity})
+    acct = CHART_OF_ACCOUNTS['EE_FICA']; journal_lines.append({'Date': formatted_date, 'Account': f"{acct['acct']} {acct['desc']}", 'Memo': 'Employee FICA Withheld', 'Department': '', 'Debit': 0, 'Credit': tax_map['EE_FICA'], 'Subsidiary': entity})
+    acct = CHART_OF_ACCOUNTS['State_WH']; journal_lines.append({'Date': formatted_date, 'Account': f"{acct['acct']} {acct['desc']}", 'Memo': 'State Income Tax Withheld', 'Department': '', 'Debit': 0, 'Credit': tax_map['State_WH'], 'Subsidiary': entity})
+    acct = CHART_OF_ACCOUNTS['SDI']; journal_lines.append({'Date': formatted_date, 'Account': f"{acct['acct']} {acct['desc']}", 'Memo': 'Employee SDI Withheld', 'Department': '', 'Debit': 0, 'Credit': tax_map['SDI'], 'Subsidiary': entity})
 
-    je_df_temp = pd.DataFrame(journal_lines); net_pay = je_df_temp['Debit'].sum() - je_df_temp['Credit'].sum()
-    acct = CHART_OF_ACCOUNTS['Net_Pay']; journal_lines.append({'Account': f"{acct['acct']} {acct['desc']}", 'Memo': f"Payroll Cash Clearing for {payroll_date}", 'Department': '', 'Debit': 0, 'Credit': net_pay, 'Subsidiary': entity})
+    je_df_temp = pd.DataFrame(journal_lines)
+    net_pay = je_df_temp['Debit'].sum() - je_df_temp['Credit'].sum()
+    acct = CHART_OF_ACCOUNTS['Net_Pay']
+    journal_lines.append({'Date': formatted_date, 'Account': f"{acct['acct']} {acct['desc']}", 'Memo': f"Payroll Cash Clearing for {formatted_date}", 'Department': '', 'Debit': 0, 'Credit': net_pay, 'Subsidiary': entity})
 
     final_je_df = pd.DataFrame(journal_lines)
-    formatted_date = pd.to_datetime(payroll_date).strftime('%m/%d/%Y')
-    final_je_df['Date'] = formatted_date
     final_je_df[['Debit', 'Credit']] = final_je_df[['Debit', 'Credit']].round(2)
     
     column_order = ['Date', 'Account', 'Memo', 'Department', 'Debit', 'Credit', 'Subsidiary']
