@@ -28,7 +28,7 @@
                             <tr>
                                 {% for key, value in row.items() %}
                                     <td>
-                                        <input type="text" name="{{ key }}_{{ loop.parent.index0 }}" value="{{ value }}" class="form-control">
+                                        <input type="text" name="{{ key }}_{{ loop.index0 }}" value="{{ value }}" class="form-control">
                                     </td>
                                 {% endfor %}
                             </tr>
