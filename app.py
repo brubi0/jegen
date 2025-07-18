@@ -187,25 +187,35 @@ def generate_csv():
     form_data = request.form.to_dict()
     
     # Reconstruct the DataFrame from the submitted form data
-    reconstructed_data = {}
+    reconstructed_list = []
+    num_rows = 0
+    # Determine the number of rows by finding the max index
+    if form_data:
+        max_index = max([int(key.rsplit('_', 1)[1]) for key in form_data.keys()])
+        num_rows = max_index + 1
+    
+    # Pre-populate the list of dictionaries to maintain row order
+    reconstructed_list = [{} for _ in range(num_rows)]
     for key, value in form_data.items():
-        col_name, row_index = key.rsplit('_', 1)
-        row_index = int(row_index)
-        
-        if row_index not in reconstructed_data:
-            reconstructed_data[row_index] = {}
-        reconstructed_data[row_index][col_name] = value
+        col_name, row_index_str = key.rsplit('_', 1)
+        row_index = int(row_index_str)
+        reconstructed_list[row_index][col_name] = value
 
-    # Convert the reconstructed dictionary to a DataFrame
-    edited_df = pd.DataFrame.from_records(list(reconstructed_data.values()))
+    # Convert the reconstructed list to a DataFrame
+    edited_df = pd.DataFrame(reconstructed_list)
 
+    # Ensure the Date column exists before trying to format it
+    if 'Date' in edited_df.columns:
+        edited_df['Date'] = pd.to_datetime(edited_df['Date']).dt.strftime('%m/%d/%Y')
+    
     # Prepare the CSV for download
     csv_df = edited_df.copy()
-    # Convert 'Debit' and 'Credit' columns to numeric for the blanking logic
-    csv_df['Debit'] = pd.to_numeric(csv_df['Debit'], errors='coerce').fillna(0)
-    csv_df['Credit'] = pd.to_numeric(csv_df['Credit'], errors='coerce').fillna(0)
-    csv_df['Debit'] = csv_df['Debit'].apply(lambda x: '' if x == 0 else x)
-    csv_df['Credit'] = csv_df['Credit'].apply(lambda x: '' if x == 0 else x)
+    if 'Debit' in csv_df.columns:
+        csv_df['Debit'] = pd.to_numeric(csv_df['Debit'], errors='coerce').fillna(0)
+        csv_df['Debit'] = csv_df['Debit'].apply(lambda x: '' if x == 0 else x)
+    if 'Credit' in csv_df.columns:
+        csv_df['Credit'] = pd.to_numeric(csv_df['Credit'], errors='coerce').fillna(0)
+        csv_df['Credit'] = csv_df['Credit'].apply(lambda x: '' if x == 0 else x)
     
     # Create the response to trigger the download
     response = make_response(csv_df.to_csv(index=False))
