@@ -7,7 +7,10 @@ from flask import Flask, request, render_template, make_response, session, redir
 app = Flask(__name__)
 app.secret_key = 'your_super_secret_key' # Replace with a real secret key
 
-# --- Constants from your script ---
+# --- Application Version ---
+__version__ = "1.1.0"
+
+# --- Constants ---
 CHART_OF_ACCOUNTS = {
     'Gross Pay': {'acct': '65060', 'desc': 'Salaries & Wages : Employees'},
     'Commission': {'acct': '65062', 'desc': 'Salaries & Wages : Commission to Employees'},
@@ -32,9 +35,8 @@ DEPARTMENT_MATCH_LIST = [
     ('Jorge A Ruiz', 'Warehouse'), ('Migdalia Sanchez', 'Warehouse')
 ]
 
-# --- Core Processing Functions from your script ---
+# --- Core Processing Functions ---
 def process_payroll_register(df):
-    """Processes Payroll Register sheet data using a flexible department map."""
     payroll_data = {}
     current_employee_name = None
     for index, row in df.iterrows():
@@ -64,7 +66,6 @@ def process_payroll_register(df):
     return pd.DataFrame(summary_list)
 
 def process_statistical_summary(df):
-    """Processes Statistical Summary sheet data."""
     data_to_process = []
     start_processing = False
     for index, row in df.iterrows():
@@ -79,9 +80,8 @@ def process_statistical_summary(df):
     return result_df[result_df['Numeric Value'] > 0].copy()[['Description', 'Numeric Value']]
 
 def create_journal_entry(register_df, taxes_df, payroll_date):
-    """Builds a detailed JE from DataFrames and returns it along with a status message."""
     if register_df.empty or taxes_df.empty:
-        return None, "Error: Processed data is empty, cannot create Journal Entry."
+        return None, "Error: Processed data is empty, cannot create Journal Entry.", 0, 0, False
 
     tax_map = {
         'EE_FICA': taxes_df[taxes_df['Description'].str.contains('Social Security - EE|Medicare - EE', regex=True)]['Numeric Value'].sum(),
@@ -128,23 +128,22 @@ def create_journal_entry(register_df, taxes_df, payroll_date):
 
     total_debits = final_je_df['Debit'].sum()
     total_credits = final_je_df['Credit'].sum()
-    status_message = f"Success! Debits and Credits are balanced: ${total_debits:,.2f}"
-    
-    if abs(total_debits - total_credits) > 0.01:
+    is_balanced = abs(total_debits - total_credits) < 0.01
+
+    if not is_balanced:
         status_message = f"WARNING: Journal Entry is out of balance! Debits: ${total_debits:,.2f}, Credits: ${total_credits:,.2f}"
-        return final_je_df, status_message
+    else:
+        status_message = f"Success! Debits and Credits are balanced: ${total_debits:,.2f}"
     
-    return final_je_df, status_message
+    return final_je_df, status_message, total_debits, total_credits, is_balanced
 
 # --- FLASK WEB ROUTES ---
 @app.route('/')
 def index():
-    """Renders the main upload page."""
-    return render_template('index.html')
+    return render_template('index.html', version=__version__)
 
 @app.route('/process', methods=['POST'])
 def process_files_route():
-    """Processes files and redirects to the review page."""
     payroll_date = request.form.get('payroll_date')
     payroll_register_file = request.files.get('payroll_register')
     statistical_summary_file = request.files.get('statistical_summary')
@@ -159,15 +158,19 @@ def process_files_route():
         processed_register_df = process_payroll_register(df_register_raw)
         processed_taxes_df = process_statistical_summary(df_summary_raw)
 
-        final_je_df, status_message = create_journal_entry(processed_register_df, processed_taxes_df, payroll_date)
+        final_je_df, status_message, total_debits, total_credits, is_balanced = create_journal_entry(processed_register_df, processed_taxes_df, payroll_date)
 
         if final_je_df is None:
             return f"An error occurred: {status_message}", 500
 
-        # Store the DataFrame in the session as a JSON object to pass to the review page
+        # Store all necessary data in the session
         session['journal_entry_data'] = final_je_df.to_json(orient='split')
+        session['status_message'] = status_message
+        session['total_debits'] = total_debits
+        session['total_credits'] = total_credits
+        # Convert boolean to int (1 or 0) for session serialization
+        session['is_balanced'] = 1 if is_balanced else 0
         
-        # Redirect to the new review page
         return redirect(url_for('review_page'))
 
     except Exception as e:
@@ -175,45 +178,35 @@ def process_files_route():
 
 @app.route('/review')
 def review_page():
-    """Renders the editable review table."""
     je_data_json = session.get('journal_entry_data')
     if not je_data_json:
         return redirect(url_for('index'))
     
-    # Convert the JSON back to a DataFrame and then to a list of dictionaries for the template
-    df = pd.read_json(je_data_json, orient='split')
+    df = pd.read_json(StringIO(je_data_json), orient='split')
     data_for_template = df.to_dict(orient='records')
 
-    return render_template('review.html', je_data=data_for_template)
+    # Pass all the session data to the template
+    return render_template('review.html', 
+                           je_data=data_for_template, 
+                           version=__version__,
+                           status_message=session.get('status_message'),
+                           total_debits=session.get('total_debits'),
+                           total_credits=session.get('total_credits'),
+                           # Convert int (1 or 0) back to boolean
+                           is_balanced=bool(session.get('is_balanced')))
 
 @app.route('/generate-csv', methods=['POST'])
 def generate_csv():
-    """Takes edited data from the review form and generates the final CSV."""
-    form_data = request.form.to_dict()
-    
-    # Reconstruct the DataFrame from the submitted form data
-    reconstructed_list = []
-    num_rows = 0
-    # Determine the number of rows by finding the max index
-    if form_data:
-        max_index = max([int(key.rsplit('_', 1)[1]) for key in form_data.keys()])
-        num_rows = max_index + 1
-    
-    # Pre-populate the list of dictionaries to maintain row order
-    reconstructed_list = [{} for _ in range(num_rows)]
-    for key, value in form_data.items():
-        col_name, row_index_str = key.rsplit('_', 1)
-        row_index = int(row_index_str)
-        reconstructed_list[row_index][col_name] = value
+    """Takes edited data as a JSON string and generates the final CSV."""
+    edited_data_json = request.form.get('edited_data')
+    if not edited_data_json:
+        return "Error: No data received.", 400
 
-    # Convert the reconstructed list to a DataFrame
-    edited_df = pd.DataFrame(reconstructed_list)
+    edited_df = pd.read_json(StringIO(edited_data_json))
 
-    # Ensure the Date column exists before trying to format it
-    if 'Date' in edited_df.columns:
-        edited_df['Date'] = pd.to_datetime(edited_df['Date']).dt.strftime('%m/%d/%Y')
-    
-    # Prepare the CSV for download
+    column_order = ['Date', 'Account', 'Memo', 'Department', 'Debit', 'Credit', 'Subsidiary']
+    edited_df = edited_df.reindex(columns=column_order)
+
     csv_df = edited_df.copy()
     if 'Debit' in csv_df.columns:
         csv_df['Debit'] = pd.to_numeric(csv_df['Debit'], errors='coerce').fillna(0)
@@ -222,7 +215,6 @@ def generate_csv():
         csv_df['Credit'] = pd.to_numeric(csv_df['Credit'], errors='coerce').fillna(0)
         csv_df['Credit'] = csv_df['Credit'].apply(lambda x: '' if x == 0 else x)
     
-    # Create the response to trigger the download
     response = make_response(csv_df.to_csv(index=False))
     response.headers["Content-Disposition"] = "attachment; filename=journal_entry_edited.csv"
     response.headers["Content-Type"] = "text/csv"
