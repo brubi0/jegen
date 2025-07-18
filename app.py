@@ -1,7 +1,7 @@
 import pandas as pd
 import re
 from io import StringIO
-from flask import Flask, request, render_template, make_response, session, url_for, redirect
+from flask import Flask, request, render_template, make_response, session, redirect, url_for
 
 # Initialize the Flask app
 app = Flask(__name__)
@@ -139,7 +139,7 @@ def index():
 
 @app.route('/process', methods=['POST'])
 def process_files_route():
-    """Handles file upload, processing, and displaying results."""
+    """Processes files and redirects to the review page."""
     payroll_date = request.form.get('payroll_date')
     payroll_register_file = request.files.get('payroll_register')
     statistical_summary_file = request.files.get('statistical_summary')
@@ -148,52 +148,70 @@ def process_files_route():
         return "Error: Please provide all inputs.", 400
     
     try:
-        # Read data from the specific Excel tabs
         df_register_raw = pd.read_excel(payroll_register_file, sheet_name='Payroll Register', header=None)
         df_summary_raw = pd.read_excel(statistical_summary_file, sheet_name='Statistical Summary', header=None)
 
-        # Process the raw data
         processed_register_df = process_payroll_register(df_register_raw)
         processed_taxes_df = process_statistical_summary(df_summary_raw)
 
-        # Create the journal entry
         final_je_df, status_message = create_journal_entry(processed_register_df, processed_taxes_df, payroll_date)
 
-        # Handle cases where processing fails
         if final_je_df is None:
             return f"An error occurred: {status_message}", 500
 
-        # Prepare CSV data for download and store in session
-        csv_df = final_je_df.copy()
-        csv_df['Debit'] = csv_df['Debit'].apply(lambda x: '' if x == 0 else x)
-        csv_df['Credit'] = csv_df['Credit'].apply(lambda x: '' if x == 0 else x)
-        session['journal_entry_csv'] = csv_df.to_csv(index=False)
-
-        # Prepare HTML tables for display
-        tables_html = {
-            'journal_entry': final_je_df.to_html(classes='table table-striped', index=False, float_format='{:,.2f}'.format),
-            'payroll_summary': processed_register_df[['Department', 'Employee Name', 'Gross Pay', 'Commission', 'Car Allowance']].to_html(classes='table table-striped', index=False, float_format='{:,.2f}'.format)
-        }
+        # Store the DataFrame in the session as a JSON object to pass to the review page
+        session['journal_entry_data'] = final_je_df.to_json(orient='split')
         
-        # Render the results page
-        return render_template('results.html',
-                               payroll_date=pd.to_datetime(payroll_date).strftime('%m/%d/%Y'),
-                               status_message=status_message,
-                               tables=tables_html)
+        # Redirect to the new review page
+        return redirect(url_for('review_page'))
 
     except Exception as e:
         return f"An error occurred during processing: {e}", 500
 
-@app.route('/download')
-def download_file_route():
-    """Provides the generated Journal Entry CSV for download."""
-    csv_data = session.get('journal_entry_csv')
-    if not csv_data:
-        return "Error: No data available for download.", 404
+@app.route('/review')
+def review_page():
+    """Renders the editable review table."""
+    je_data_json = session.get('journal_entry_data')
+    if not je_data_json:
+        return redirect(url_for('index'))
+    
+    # Convert the JSON back to a DataFrame and then to a list of dictionaries for the template
+    df = pd.read_json(je_data_json, orient='split')
+    data_for_template = df.to_dict(orient='records')
 
-    response = make_response(csv_data)
-    response.headers["Content-Disposition"] = "attachment; filename=journal_entry.csv"
+    return render_template('review.html', je_data=data_for_template)
+
+@app.route('/generate-csv', methods=['POST'])
+def generate_csv():
+    """Takes edited data from the review form and generates the final CSV."""
+    form_data = request.form.to_dict()
+    
+    # Reconstruct the DataFrame from the submitted form data
+    reconstructed_data = {}
+    for key, value in form_data.items():
+        col_name, row_index = key.rsplit('_', 1)
+        row_index = int(row_index)
+        
+        if row_index not in reconstructed_data:
+            reconstructed_data[row_index] = {}
+        reconstructed_data[row_index][col_name] = value
+
+    # Convert the reconstructed dictionary to a DataFrame
+    edited_df = pd.DataFrame.from_records(list(reconstructed_data.values()))
+
+    # Prepare the CSV for download
+    csv_df = edited_df.copy()
+    # Convert 'Debit' and 'Credit' columns to numeric for the blanking logic
+    csv_df['Debit'] = pd.to_numeric(csv_df['Debit'], errors='coerce').fillna(0)
+    csv_df['Credit'] = pd.to_numeric(csv_df['Credit'], errors='coerce').fillna(0)
+    csv_df['Debit'] = csv_df['Debit'].apply(lambda x: '' if x == 0 else x)
+    csv_df['Credit'] = csv_df['Credit'].apply(lambda x: '' if x == 0 else x)
+    
+    # Create the response to trigger the download
+    response = make_response(csv_df.to_csv(index=False))
+    response.headers["Content-Disposition"] = "attachment; filename=journal_entry_edited.csv"
     response.headers["Content-Type"] = "text/csv"
+    
     return response
 
 if __name__ == '__main__':
