@@ -12,15 +12,18 @@
             <h1 class="display-5">Review & Edit Journal Entry</h1>
             <p class="lead text-muted">Verify the data below. You can edit any cell before generating the final CSV.</p>
         </div>
+
+        <div id="status-message-container" class="alert {{ 'alert-danger' if not is_balanced else 'alert-success' }}" role="alert">
+            <strong id="status-message">{{ status_message }}</strong>
+        </div>
         
-        <form action="/generate-csv" method="post">
+        <form id="review-form" action="/generate-csv" method="post">
+            <input type="hidden" name="edited_data" id="edited_data">
             <div class="table-responsive">
-                <table class="table table-bordered">
+                <table id="review-table" class="table table-bordered">
                     <thead>
                         <tr>
-                            {% for key in je_data[0].keys() %}
-                                <th>{{ key }}</th>
-                            {% endfor %}
+                            {% if je_data %}{% for key in je_data[0].keys() %}<th data-key="{{ key }}">{{ key }}</th>{% endfor %}{% endif %}
                         </tr>
                     </thead>
                     <tbody>
@@ -28,19 +31,94 @@
                             <tr>
                                 {% for key, value in row.items() %}
                                     <td>
-                                        <input type="text" name="{{ key }}_{{ loop.index0 }}" value="{{ value }}" class="form-control">
+                                        <input type="text" value="{{ value }}" class="form-control" data-key="{{ key }}">
                                     </td>
                                 {% endfor %}
                             </tr>
                         {% endfor %}
                     </tbody>
+                    <tfoot class="table-group-divider">
+                        <tr>
+                            <td colspan="4" class="text-end"><strong>Totals:</strong></td>
+                            <td id="debit-total"><strong>${{ "%.2f"|format(total_debits) }}</strong></td>
+                            <td id="credit-total"><strong>${{ "%.2f"|format(total_credits) }}</strong></td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
-            <div class="text-center my-4">
-                <button type="submit" class="btn btn-success btn-lg">Generate & Download CSV</button>
+            <div id="button-container" class="text-center my-4">
+                {% if is_balanced %}
+                    <button type="submit" class="btn btn-success btn-lg">Generate & Download CSV</button>
+                {% else %}
+                    <p class="text-danger"><strong>Cannot generate CSV because the Journal Entry is not balanced.</strong></p>
+                {% endif %}
                 <a href="/" class="btn btn-secondary btn-lg">Cancel and Start Over</a>
             </div>
         </form>
+    </div>
+
+    <script>
+        const table = document.getElementById('review-table');
+        const debitTotalEl = document.getElementById('debit-total').querySelector('strong');
+        const creditTotalEl = document.getElementById('credit-total').querySelector('strong');
+        const buttonContainer = document.getElementById('button-container');
+        const statusContainer = document.getElementById('status-message-container');
+        const statusMessage = document.getElementById('status-message');
+        const form = document.getElementById('review-form');
+
+        function updateTotals() {
+            let debitTotal = 0;
+            let creditTotal = 0;
+            
+            const headers = Array.from(table.querySelectorAll('thead th'));
+            const debitIndex = headers.findIndex(th => th.dataset.key === 'Debit');
+            const creditIndex = headers.findIndex(th => th.dataset.key === 'Credit');
+
+            const rows = table.querySelectorAll('tbody tr');
+            rows.forEach(row => {
+                const inputs = row.querySelectorAll('input');
+                const debitValue = parseFloat(inputs[debitIndex].value) || 0;
+                const creditValue = parseFloat(inputs[creditIndex].value) || 0;
+                debitTotal += debitValue;
+                creditTotal += creditValue;
+            });
+
+            debitTotalEl.textContent = `$${debitTotal.toFixed(2)}`;
+            creditTotalEl.textContent = `$${creditTotal.toFixed(2)}`;
+
+            if (Math.abs(debitTotal - creditTotal) < 0.01 && debitTotal > 0) {
+                statusMessage.textContent = `Success! Debits and Credits are balanced: $${debitTotal.toFixed(2)}`;
+                statusContainer.className = 'alert alert-success';
+                buttonContainer.innerHTML = '<button type="submit" class="btn btn-success btn-lg">Generate & Download CSV</button> <a href="/" class="btn btn-secondary btn-lg">Cancel and Start Over</a>';
+            } else {
+                statusMessage.textContent = `WARNING: Journal Entry is out of balance! Debits: $${debitTotal.toFixed(2)}, Credits: $${creditTotal.toFixed(2)}`;
+                statusContainer.className = 'alert alert-danger';
+                buttonContainer.innerHTML = '<p class="text-danger"><strong>Cannot generate CSV because the Journal Entry is not balanced.</strong></p> <a href="/" class="btn btn-secondary btn-lg">Cancel and Start Over</a>';
+            }
+        }
+
+        table.addEventListener('input', updateTotals);
+
+        form.addEventListener('submit', function(event) {
+            event.preventDefault();
+            const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent);
+            const rows = table.querySelectorAll('tbody tr');
+            const data = [];
+            rows.forEach(row => {
+                const rowData = {};
+                const inputs = row.querySelectorAll('input');
+                inputs.forEach((input, index) => {
+                    rowData[headers[index]] = input.value;
+                });
+                data.push(rowData);
+            });
+            document.getElementById('edited_data').value = JSON.stringify(data);
+            this.submit();
+        });
+    </script>
+     <div class="text-center mt-3">
+        <small class="text-muted">JEGEN v{{ version }} | Urku Consulting &copy; 2025</small>
     </div>
 </body>
 </html>
